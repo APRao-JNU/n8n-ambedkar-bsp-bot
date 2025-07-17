@@ -1,0 +1,154 @@
+{
+  "name": "Ambedkarite & BSP Counter-Reply Bot",
+  "active": true,
+  "nodes": [
+    {
+      "parameters": {
+        "triggerOn": "new",
+        "options": {},
+        "resource": "tweet",
+        "additionalFields": {}
+      },
+      "name": "Twitter Trigger",
+      "type": "n8n-nodes-base.twitterTrigger",
+      "typeVersion": 1,
+      "position": [100, 200]
+    },
+    {
+      "parameters": {
+        "model": "gpt-4o",
+        "input": "Detect if the tweet is casteist, anti-reservation, anti-Bahujan, or BSP-related criticism:\n\n{{ $node[\"Twitter Trigger\"].json.text }}",
+        "options": {}
+      },
+      "name": "LLM Classifier",
+      "type": "n8n-nodes-base.openAIApi",
+      "typeVersion": 1,
+      "position": [300, 200]
+    },
+    {
+      "parameters": {
+        "rules": [
+          {
+            "value1": "={{ $json[\"choices\"][0][\"message\"][\"content\"] }}",
+            "operation": "contains",
+            "value2": "anti-reservation"
+          },
+          {
+            "value1": "={{ $json[\"choices\"][0][\"message\"][\"content\"] }}",
+            "operation": "contains",
+            "value2": "Bahujan"
+          }
+        ],
+        "mode": "any",
+        "outputKey": "ideology_type"
+      },
+      "name": "Ideology Switch",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 1,
+      "position": [500, 200]
+    },
+    {
+      "parameters": {
+        "mode": "passthrough",
+        "values": {
+          "string": [
+            {
+              "name": "prompt",
+              "value": "You are an Ambedkarite chatbot. Counter casteism and anti-reservation posts using Ambedkar’s constitutional morality. Post: {{ $node[\"Twitter Trigger\"].json.text }}"
+            }
+          ]
+        }
+      },
+      "name": "Set Ambedkarite Prompt",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 1,
+      "position": [700, 100]
+    },
+    {
+      "parameters": {
+        "mode": "passthrough",
+        "values": {
+          "string": [
+            {
+              "name": "prompt",
+              "value": "You are a Bahujan/BSP chatbot. Counter anti-BSP or Bahujan-critique posts using Kanshi Ram’s Bahujan theory and Mayawati’s political empowerment. Post: {{ $node[\"Twitter Trigger\"].json.text }}"
+            }
+          ]
+        }
+      },
+      "name": "Set BSP Prompt",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 1,
+      "position": [700, 300]
+    },
+    {
+      "parameters": {
+        "model": "gpt-4o",
+        "input": "={{ $node[\"Set Ambedkarite Prompt\"].json.prompt }}",
+        "options": {}
+      },
+      "name": "Generate Ambedkarite Reply",
+      "type": "n8n-nodes-base.openAIApi",
+      "typeVersion": 1,
+      "position": [900, 100]
+    },
+    {
+      "parameters": {
+        "model": "gpt-4o",
+        "input": "={{ $node[\"Set BSP Prompt\"].json.prompt }}",
+        "options": {}
+      },
+      "name": "Generate BSP Reply",
+      "type": "n8n-nodes-base.openAIApi",
+      "typeVersion": 1,
+      "position": [900, 300]
+    },
+    {
+      "parameters": {
+        "resource": "tweet",
+        "operation": "reply",
+        "tweetId": "={{ $node[\"Twitter Trigger\"].json.id_str }}",
+        "text": "={{ $node[\"Generate Ambedkarite Reply\"].json.choices[0].message.content || $node[\"Generate BSP Reply\"].json.choices[0].message.content }}"
+      },
+      "name": "Post Reply",
+      "type": "n8n-nodes-base.twitter",
+      "typeVersion": 1,
+      "position": [1100, 200]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "sheetId": "<GOOGLE_SHEET_ID>",
+        "range": "Sheet1!A:D",
+        "valueInputMode": "RAW",
+        "values": [
+          [
+            "={{ $node[\"Twitter Trigger\"].json.id_str }}",
+            "={{ $node[\"Twitter Trigger\"].json.text }}",
+            "={{ $node[\"Post Reply\"].json.text }}",
+            "={{ new Date().toISOString() }}"
+          ]
+        ]
+      },
+      "name": "Log to Google Sheets",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 1,
+      "position": [1300, 200]
+    }
+  ],
+  "connections": {
+    "Twitter Trigger": { "main": [[{ "node": "LLM Classifier", "type": "main", "index": 0 }]] },
+    "LLM Classifier": { "main": [[{ "node": "Ideology Switch", "type": "main", "index": 0 }]] },
+    "Ideology Switch": {
+      "main": [
+        [{ "node": "Set Ambedkarite Prompt", "type": "main", "index": 0, "conditional": { "value": "anti-reservation" }}],
+        [{ "node": "Set BSP Prompt", "type": "main", "index": 1, "conditional": { "value": "Bahujan" }}]
+      ]
+    },
+    "Set Ambedkarite Prompt": { "main": [[{ "node": "Generate Ambedkarite Reply", "type": "main", "index": 0 }]] },
+    "Set BSP Prompt": { "main": [[{ "node": "Generate BSP Reply", "type": "main", "index": 0 }]] },
+    "Generate Ambedkarite Reply": { "main": [[{ "node": "Post Reply", "type": "main", "index": 0 }]] },
+    "Generate BSP Reply": { "main": [[{ "node": "Post Reply", "type": "main", "index": 0 }]] },
+    "Post Reply": { "main": [[{ "node": "Log to Google Sheets", "type": "main", "index": 0 }]] }
+  }
+}
